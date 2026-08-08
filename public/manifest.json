@@ -1,0 +1,23 @@
+{
+  "name": "kindalikepdf",
+  "short_name": "kindalikepdf",
+  "description": "Pengelolaan PDF 100% Stateless & Aman",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0d9488",
+  "icons": [
+    {
+      "src": "/kindalike.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/kindalike.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
