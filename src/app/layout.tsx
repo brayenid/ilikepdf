@@ -16,25 +16,33 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: {
-    default: "kindalikepdf | Pengelolaan PDF 100% Stateless & Aman",
+    default: "kindalikepdf | Pengolahan PDF Lokal di Browser",
     template: "%s | kindalikepdf",
   },
   description:
-    "Kelola, gabungkan, pisahkan, dan kompres file PDF Anda secara stateless langsung di browser. Semua pemrosesan data berjalan lokal di memori Anda tanpa pernah diunggah atau disimpan ke server mana pun.",
+    "Kelola, gabungkan, pisahkan, dan kompres file PDF Anda secara lokal langsung di browser. Semua pemrosesan data berjalan di memori Anda tanpa diunggah ke server.",
   keywords: [
-    "pdf tools stateless",
-    "pengelolaan pdf lokal",
-    "gabung pdf aman",
-    "kompres pdf tanpa simpan",
-    "split pdf browser",
-    "edit pdf privat",
+    "pdf tools lokal",
+    "pengelolaan pdf browser",
+    "gabung pdf",
+    "kompres pdf lokal",
+    "split pdf",
+    "edit pdf",
     "kindalikepdf"
   ],
   openGraph: {
-    title: "kindalikepdf | Pengelolaan PDF 100% Stateless & Aman",
-    description: "Semua pemrosesan PDF berjalan secara lokal dan stateless di browser Anda. Dokumen diproses langsung di perangkat Anda tanpa pernah diunggah atau disimpan di server kami.",
+    title: "kindalikepdf | Pengolahan PDF Lokal di Browser",
+    description: "Semua pemrosesan PDF berjalan secara lokal di browser Anda. Dokumen diproses langsung di perangkat Anda tanpa pernah diunggah atau disimpan di server kami.",
     type: "website",
     locale: "id_ID",
+    images: [
+      {
+        url: "/kindalike.png",
+        width: 512,
+        height: 512,
+        alt: "Logo kindalikepdf",
+      },
+    ],
   },
   manifest: "/manifest.json",
 };
