@@ -16,6 +16,12 @@ import { ToolCard, HeroCTA } from "@/components/LandingClient";
 
 const tools = [
   {
+    href: "/tools/compress",
+    label: "Kompres PDF",
+    description: "Kurangi ukuran file PDF tanpa banyak mengorbankan kualitas.",
+    icon: ArrowsDownUp,
+  },
+  {
     href: "/tools/merge",
     label: "Gabungkan PDF",
     description: "Satukan beberapa file PDF menjadi satu dokumen.",
@@ -26,12 +32,6 @@ const tools = [
     label: "Pisahkan PDF",
     description: "Pisahkan halaman tertentu menjadi file terpisah.",
     icon: Scissors,
-  },
-  {
-    href: "/tools/compress",
-    label: "Kompres PDF",
-    description: "Kurangi ukuran file PDF tanpa banyak mengorbankan kualitas.",
-    icon: ArrowsDownUp,
   },
   {
     href: "/tools/organize",

@@ -13,9 +13,9 @@ import {
 } from "@phosphor-icons/react";
 
 const tools = [
+  { href: "/tools/compress", label: "Kompres", icon: ArrowsDownUp },
   { href: "/tools/merge", label: "Gabungkan", icon: FilePlus },
   { href: "/tools/split", label: "Pisahkan", icon: Scissors },
-  { href: "/tools/compress", label: "Kompres", icon: ArrowsDownUp },
   { href: "/tools/organize", label: "Kelola Halaman", icon: SquaresFour },
 ];
 

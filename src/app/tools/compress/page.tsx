@@ -28,89 +28,100 @@ export default function CompressPage() {
   const [files, setFiles] = useState<DroppedFile[]>([]);
   const [pageState, setPageState] = useState<PageState>("idle");
   const [level, setLevel] = useState<CompressionLevel>("sedang");
-  const [resultBytes, setResultBytes] = useState<Uint8Array<ArrayBuffer> | null>(null);
+  const [compressedFiles, setCompressedFiles] = useState<{ name: string; data: Uint8Array }[]>([]);
 
   usePreventUnload(files.length > 0);
   const [originalSize, setOriginalSize] = useState(0);
   const [errorMsg, setErrorMsg] = useState("");
   const [progress, setProgress] = useState(0);
+  const [currentFileIndex, setCurrentFileIndex] = useState(0);
 
   const handleCompress = useCallback(async () => {
-    if (!files[0]) return;
+    if (files.length === 0) return;
     setPageState("processing");
     setErrorMsg("");
+    setProgress(0);
+    setCurrentFileIndex(0);
+
+    const totalOriginalSize = files.reduce((acc, f) => acc + f.file.size, 0);
+    setOriginalSize(totalOriginalSize);
+
+    const outputs: { name: string; data: Uint8Array }[] = [];
+    const quality = level === "ringan" ? 0.75 : level === "sedang" ? 0.55 : 0.35;
 
     try {
-      const buf = await files[0].file.arrayBuffer();
-      setOriginalSize(buf.byteLength);
+      for (let i = 0; i < files.length; i++) {
+        setCurrentFileIndex(i);
+        const fileItem = files[i];
+        const buf = await fileItem.file.arrayBuffer();
 
-      const doc = await PDFDocument.load(buf, {
-        ignoreEncryption: true,
-      });
+        const doc = await PDFDocument.load(buf, {
+          ignoreEncryption: true,
+        });
 
-      // Map level to JPEG quality (Ringan: 0.75, Sedang: 0.55, Maksimal: 0.35)
-      const quality = level === "ringan" ? 0.75 : level === "sedang" ? 0.55 : 0.35;
+        const indirectObjects = doc.context.enumerateIndirectObjects();
+        const totalObjects = indirectObjects.length;
+        let currentIndex = 0;
 
-      const indirectObjects = doc.context.enumerateIndirectObjects();
-      const totalObjects = indirectObjects.length;
-      let currentIndex = 0;
+        for (const [ref, obj] of indirectObjects) {
+          currentIndex++;
+          setProgress(Math.round((currentIndex / totalObjects) * 100));
 
-      for (const [ref, obj] of indirectObjects) {
-        currentIndex++;
-        // Update progress dynamically based on current index
-        setProgress(Math.round((currentIndex / totalObjects) * 100));
+          if (obj instanceof PDFRawStream) {
+            const dict = obj.dict;
+            const subtype = dict.get(PDFName.of("Subtype"));
+            const filter = dict.get(PDFName.of("Filter"));
 
-        if (obj instanceof PDFRawStream) {
-          const dict = obj.dict;
-          const subtype = dict.get(PDFName.of("Subtype"));
-          const filter = dict.get(PDFName.of("Filter"));
+            if (subtype === PDFName.of("Image") && filter === PDFName.of("DCTDecode")) {
+              try {
+                const originalBytes = obj.contents as Uint8Array<ArrayBuffer>;
+                const blob = new Blob([originalBytes], { type: "image/jpeg" });
+                const url = URL.createObjectURL(blob);
 
-          // Only compress DCTDecode (JPEG) images embedded in the PDF
-          if (subtype === PDFName.of("Image") && filter === PDFName.of("DCTDecode")) {
-            try {
-              const originalBytes = obj.contents as Uint8Array<ArrayBuffer>;
-              const blob = new Blob([originalBytes], { type: "image/jpeg" });
-              const url = URL.createObjectURL(blob);
+                const img = new Image();
+                img.src = url;
+                await new Promise((resolve, reject) => {
+                  img.onload = resolve;
+                  img.onerror = reject;
+                });
+                URL.revokeObjectURL(url);
 
-              const img = new Image();
-              img.src = url;
-              await new Promise((resolve, reject) => {
-                img.onload = resolve;
-                img.onerror = reject;
-              });
-              URL.revokeObjectURL(url);
+                const canvas = document.createElement("canvas");
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext("2d");
+                if (ctx) {
+                  ctx.drawImage(img, 0, 0);
+                  const compressedDataUrl = canvas.toDataURL("image/jpeg", quality);
+                  const base64Data = compressedDataUrl.split(",")[1];
+                  const compressedBytes = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
 
-              const canvas = document.createElement("canvas");
-              canvas.width = img.width;
-              canvas.height = img.height;
-              const ctx = canvas.getContext("2d");
-              if (ctx) {
-                ctx.drawImage(img, 0, 0);
-                const compressedDataUrl = canvas.toDataURL("image/jpeg", quality);
-                const base64Data = compressedDataUrl.split(",")[1];
-                const compressedBytes = Uint8Array.from(atob(base64Data), (c) => c.charCodeAt(0));
-
-                // Replace only if size is reduced
-                if (compressedBytes.length < originalBytes.length) {
-                  (obj as any).contents = compressedBytes;
-                  dict.set(PDFName.of("Length"), PDFNumber.of(compressedBytes.length));
+                  if (compressedBytes.length < originalBytes.length) {
+                    (obj as any).contents = compressedBytes;
+                    dict.set(PDFName.of("Length"), PDFNumber.of(compressedBytes.length));
+                  }
                 }
+                canvas.width = 0;
+                canvas.height = 0;
+                img.src = "";
+              } catch (e) {
+                console.warn("Gagal mengompres objek gambar:", e);
               }
-              // Free VRAM/RAM buffers immediately
-              canvas.width = 0;
-              canvas.height = 0;
-              img.src = "";
-            } catch (e) {
-              console.warn("Gagal mengompres objek gambar:", e);
             }
           }
         }
+
+        const saveOptions = { useObjectStreams: true, addDefaultPage: false };
+        const raw = await doc.save(saveOptions);
+        const compressed = new Uint8Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength)) as Uint8Array<ArrayBuffer>;
+
+        outputs.push({
+          name: fileItem.file.name,
+          data: compressed,
+        });
       }
 
-      const saveOptions = { useObjectStreams: true, addDefaultPage: false };
-      const raw = await doc.save(saveOptions);
-      const compressed = new Uint8Array(raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength)) as Uint8Array<ArrayBuffer>;
-      setResultBytes(compressed);
+      setCompressedFiles(outputs);
       setPageState("done");
     } catch (err) {
       console.error(err);
@@ -120,13 +131,27 @@ export default function CompressPage() {
   }, [files, level]);
 
   const handleDownload = useCallback(async () => {
-    if (!resultBytes) return;
-    const fileName = `compressed-${files[0]?.file.name ?? "output"}.pdf`;
-    await streamDownload(resultBytes, fileName);
-  }, [resultBytes, files]);
+    if (compressedFiles.length === 0) return;
+
+    if (compressedFiles.length === 1) {
+      const single = compressedFiles[0];
+      const fileName = `compressed-${single.name}`;
+      await streamDownload(single.data, fileName);
+    } else {
+      const JSZip = (await import("jszip")).default;
+      const zip = new JSZip();
+
+      compressedFiles.forEach((file) => {
+        zip.file(`compressed-${file.name}`, file.data);
+      });
+
+      const zipContent = await zip.generateAsync({ type: "blob" });
+      await streamDownload(zipContent, "compressed-files.zip", "application/zip");
+    }
+  }, [compressedFiles]);
 
   const canCompress = files.length > 0 && pageState === "idle";
-  const resultSize = resultBytes?.byteLength ?? 0;
+  const resultSize = compressedFiles.reduce((acc, f) => acc + f.data.length, 0);
   const savings =
     originalSize > 0 && resultSize > 0
       ? Math.max(0, Math.round(((originalSize - resultSize) / originalSize) * 100))
@@ -150,13 +175,13 @@ export default function CompressPage() {
       <div className="space-y-6">
         <DropZone
           accept=".pdf"
-          multiple={false}
+          multiple={true}
           files={files}
           onFilesChange={(f) => {
             setFiles(f);
             if (pageState !== "idle") {
               setPageState("idle");
-              setResultBytes(null);
+              setCompressedFiles([]);
             }
           }}
           state={dropState}
@@ -202,7 +227,7 @@ export default function CompressPage() {
         )}
 
         {/* Result size comparison */}
-        {pageState === "done" && resultBytes && (
+        {pageState === "done" && compressedFiles.length > 0 && (
           <div
             className="p-5 border rounded-lg"
             style={{
@@ -212,7 +237,7 @@ export default function CompressPage() {
             }}
           >
             <p className="text-sm font-medium mb-3" style={{ color: "var(--foreground)" }}>
-              Hasil kompresi
+              Hasil kompresi {compressedFiles.length > 1 && `(${compressedFiles.length} file)`}
             </p>
             <div className="flex items-center gap-8 flex-wrap">
               <div>
@@ -269,7 +294,7 @@ export default function CompressPage() {
             </div>
             <p className="text-xs mt-2 flex items-center gap-1.5" style={{ color: "var(--muted)" }}>
               <SpinnerGap size={13} className="animate-spin" />
-              Mengompres file... {progress}%
+              Mengompres file {currentFileIndex + 1} dari {files.length}... {progress}%
             </p>
           </div>
         )}
@@ -325,13 +350,16 @@ export default function CompressPage() {
             </button>
           ) : (
             <>
-              <DownloadButton onDownload={handleDownload} label="Unduh PDF Hasil" />
+              <DownloadButton 
+                onDownload={handleDownload} 
+                label={compressedFiles.length > 1 ? "Unduh ZIP Hasil" : "Unduh PDF Hasil"} 
+              />
               <button
                 type="button"
                 onClick={() => {
                   setFiles([]);
                   setPageState("idle");
-                  setResultBytes(null);
+                  setCompressedFiles([]);
                 }}
                 className="px-4 py-2.5 text-sm transition-colors duration-150"
                 style={{ color: "var(--muted)", borderRadius: "var(--radius-btn)" }}

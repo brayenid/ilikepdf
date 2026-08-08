@@ -1,14 +1,42 @@
 import { NextRequest, NextResponse } from "next/server";
+import { rateLimit } from "@/utils/rateLimit";
 
 export const maxDuration = 30;
 
 export async function POST(request: NextRequest) {
   try {
+    // 1. Rate limit check
+    const ip = (request as any).ip || request.headers.get("x-forwarded-for")?.split(",")[0].trim() || "127.0.0.1";
+    const limitResult = rateLimit(ip, 5); // 5 requests per minute
+
+    const limitHeaders: Record<string, string> = {
+      "X-RateLimit-Limit": limitResult.limit.toString(),
+      "X-RateLimit-Remaining": limitResult.remaining.toString(),
+      "X-RateLimit-Reset": Math.ceil(limitResult.reset / 1000).toString(),
+    };
+
+    if (!limitResult.success) {
+      const retryAfter = Math.ceil((limitResult.reset - Date.now()) / 1000).toString();
+      return NextResponse.json(
+        { error: "Terlalu banyak permintaan (Rate limit terlampaui). Silakan coba lagi nanti." },
+        { 
+          status: 429, 
+          headers: {
+            ...limitHeaders,
+            "Retry-After": retryAfter,
+          }
+        }
+      );
+    }
+
     const formData = await request.formData();
     const file = formData.get("file") as File | null;
 
     if (!file) {
-      return NextResponse.json({ error: "Tidak ada file yang dikirim." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Tidak ada file yang dikirim." },
+        { status: 400, headers: limitHeaders }
+      );
     }
 
     const fileName = file.name.toLowerCase();
@@ -101,6 +129,7 @@ ${bodyHtml}
         "Content-Type": "text/html; charset=utf-8",
         "Content-Disposition": `inline; filename="${outputName}"`,
         "Cache-Control": "no-store",
+        ...limitHeaders,
       },
     });
   } catch (error) {
