@@ -105,6 +105,57 @@ function PageThumbnail({ pageIndex, pdf }: PageThumbnailProps) {
 }
 
 /* ────────────────────────────────────────────────────────
+   Page Position Input Component for Quick Reordering
+──────────────────────────────────────────────────────── */
+interface PagePositionInputProps {
+  currentIndex: number;
+  maxIndex: number;
+  onMove: (targetIndex: number) => void;
+}
+
+function PagePositionInput({ currentIndex, maxIndex, onMove }: PagePositionInputProps) {
+  const [value, setValue] = useState((currentIndex + 1).toString());
+
+  useEffect(() => {
+    setValue((currentIndex + 1).toString());
+  }, [currentIndex]);
+
+  const handleBlurOrEnter = () => {
+    const val = parseInt(value, 10);
+    if (isNaN(val) || val < 1 || val > maxIndex) {
+      setValue((currentIndex + 1).toString());
+      return;
+    }
+    if (val - 1 !== currentIndex) {
+      onMove(val - 1);
+    }
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="numeric"
+      pattern="[0-9]*"
+      value={value}
+      onChange={(e) => setValue(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          handleBlurOrEnter();
+          (e.currentTarget as HTMLInputElement).blur();
+        }
+      }}
+      onBlur={handleBlurOrEnter}
+      title="Ubah posisi halaman (tekan Enter)"
+      className="w-8 h-8 text-center text-xs font-semibold border rounded-full bg-white transition-all focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 shadow-sm cursor-text"
+      style={{
+        borderColor: "var(--border-solid)",
+        color: "var(--foreground)",
+      }}
+    />
+  );
+}
+
+/* ────────────────────────────────────────────────────────
    Main Organize Page Component
 ──────────────────────────────────────────────────────── */
 export default function OrganizePage() {
@@ -123,6 +174,62 @@ export default function OrganizePage() {
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
   const insertFileInputRef = useRef<HTMLInputElement>(null);
+
+  const dragYRef = useRef<number | null>(null);
+  const animationFrameId = useRef<number | null>(null);
+
+  // Auto-scroll when dragging near viewport edges
+  useEffect(() => {
+    if (draggedIndex === null) {
+      if (animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+        animationFrameId.current = null;
+      }
+      dragYRef.current = null;
+      return;
+    }
+
+    const handleWindowDragOver = (e: DragEvent) => {
+      dragYRef.current = e.clientY;
+    };
+
+    window.addEventListener("dragover", handleWindowDragOver);
+
+    const checkScroll = () => {
+      if (dragYRef.current !== null) {
+        const y = dragYRef.current;
+        const threshold = 120; // px from top/bottom of viewport
+        const maxSpeed = 20; // px per frame
+        const height = window.innerHeight;
+
+        let speed = 0;
+        if (y < threshold) {
+          // Scroll up: speed is negative
+          const ratio = (threshold - y) / threshold;
+          speed = -maxSpeed * Math.min(1, Math.max(0, ratio));
+        } else if (y > height - threshold) {
+          // Scroll down: speed is positive
+          const ratio = (y - (height - threshold)) / threshold;
+          speed = maxSpeed * Math.min(1, Math.max(0, ratio));
+        }
+
+        if (speed !== 0) {
+          window.scrollBy(0, speed);
+        }
+      }
+      animationFrameId.current = requestAnimationFrame(checkScroll);
+    };
+
+    animationFrameId.current = requestAnimationFrame(checkScroll);
+
+    return () => {
+      window.removeEventListener("dragover", handleWindowDragOver);
+      if (animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+        animationFrameId.current = null;
+      }
+    };
+  }, [draggedIndex]);
 
   const handleFilesChange = useCallback(async (newFiles: DroppedFile[]) => {
     setFiles(newFiles);
@@ -185,22 +292,22 @@ export default function OrganizePage() {
     }
   };
 
-  const moveUp = (index: number) => {
-    if (index === 0) return;
+  const movePage = (fromIndex: number, toIndex: number) => {
+    if (toIndex < 0 || toIndex >= pageItems.length || fromIndex === toIndex) return;
     setPageItems((prev) => {
       const next = [...prev];
-      [next[index - 1], next[index]] = [next[index], next[index - 1]];
+      const [removed] = next.splice(fromIndex, 1);
+      next.splice(toIndex, 0, removed);
       return next;
     });
   };
 
+  const moveUp = (index: number) => {
+    movePage(index, index - 1);
+  };
+
   const moveDown = (index: number) => {
-    if (index === pageItems.length - 1) return;
-    setPageItems((prev) => {
-      const next = [...prev];
-      [next[index], next[index + 1]] = [next[index + 1], next[index]];
-      return next;
-    });
+    movePage(index, index + 1);
   };
 
   const removePage = (index: number) => {
@@ -522,13 +629,18 @@ export default function OrganizePage() {
                         <DotsSixVertical size={16} />
                       </div>
 
-                      {/* Order number */}
-                      <span
-                        className="w-6 text-center text-xs font-semibold tabular-nums shrink-0"
-                        style={{ color: "var(--muted)" }}
+                      {/* Order number (Editable Position Input) */}
+                      <div
+                        className="shrink-0"
+                        draggable={false}
+                        onDragStart={(e) => e.stopPropagation()}
                       >
-                        {index + 1}
-                      </span>
+                        <PagePositionInput
+                          currentIndex={index}
+                          maxIndex={pageItems.length}
+                          onMove={(target) => movePage(index, target)}
+                        />
+                      </div>
 
                       {/* Thumbnail Preview */}
                       <div
@@ -643,17 +755,18 @@ export default function OrganizePage() {
                       >
                         <PageThumbnail pageIndex={item.pageIndex} pdf={srcDoc?.pdfJsDoc} />
 
-                        {/* Badge Page Number */}
-                        <span
-                          className="absolute top-2 left-2 w-6 h-6 flex items-center justify-center text-xs font-semibold rounded-full bg-white border"
-                          style={{
-                            borderColor: "var(--border-solid)",
-                            color: "var(--foreground)",
-                            boxShadow: "0 1px 3px rgba(0,0,0,0.05)",
-                          }}
+                        {/* Badge Page Number (Editable Position Input) */}
+                        <div
+                          className="absolute top-2 left-2 z-10 pointer-events-auto"
+                          draggable={false}
+                          onDragStart={(e) => e.stopPropagation()}
                         >
-                          {index + 1}
-                        </span>
+                          <PagePositionInput
+                            currentIndex={index}
+                            maxIndex={pageItems.length}
+                            onMove={(target) => movePage(index, target)}
+                          />
+                        </div>
 
                         {/* Action buttons (hidden during drag) */}
                         {!isDraggingThis && (
