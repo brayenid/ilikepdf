@@ -10,6 +10,9 @@
   },
   "dependencies": {
     "@hello-pangea/dnd": "^18.0.1",
+    "@imgly/background-removal": "^1.7.0",
+    "@pdfsmaller/pdf-decrypt": "^1.0.1",
+    "@pdfsmaller/pdf-encrypt-lite": "^1.2.0",
     "@phosphor-icons/react": "^2.1.10",
     "autoprefixer": "^10.5.4",
     "jszip": "^3.10.1",

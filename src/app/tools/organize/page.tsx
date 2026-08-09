@@ -1,21 +1,28 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { PDFDocument } from "pdf-lib";
+import { PDFDocument, degrees } from "pdf-lib";
 import ToolLayout from "@/components/ToolLayout";
 import DropZone, { DroppedFile } from "@/components/DropZone";
 import DownloadButton from "@/components/DownloadButton";
-import { SpinnerGap, WarningCircle, Trash, ArrowUp, ArrowDown, List, SquaresFour, DotsSixVertical, Plus } from "@phosphor-icons/react";
+import { SpinnerGap, WarningCircle, Trash, ArrowUp, ArrowDown, List, SquaresFour, DotsSixVertical, Plus, ArrowClockwise } from "@phosphor-icons/react";
 import { streamDownload } from "@/utils/streamDownload";
 import { usePreventUnload } from "@/hooks/usePreventUnload";
 
 type PageState = "idle" | "loading" | "ready" | "processing" | "done" | "error";
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 interface PageItem {
   id: string;
   label: string;
   pageIndex: number; // original index in the source PDF
   sourceDocId: string; // references a source document in the state
+  rotation?: number; // 0, 90, 180, 270 degrees
 }
 
 interface SourceDoc {
@@ -31,9 +38,10 @@ interface SourceDoc {
 interface PageThumbnailProps {
   pageIndex: number;
   pdf: any; // PDFDocumentProxy from pdf.js
+  scale: number;
 }
 
-function PageThumbnail({ pageIndex, pdf }: PageThumbnailProps) {
+function PageThumbnail({ pageIndex, pdf, scale }: PageThumbnailProps) {
   const [thumbUrl, setThumbUrl] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const renderedRef = useRef(false);
@@ -60,12 +68,12 @@ function PageThumbnail({ pageIndex, pdf }: PageThumbnailProps) {
     }
 
     return () => observer.disconnect();
-  }, [pdf, pageIndex]);
+  }, [pdf, pageIndex, scale]);
 
   const renderThumbnail = async () => {
     try {
       const page = await pdf.getPage(pageIndex + 1);
-      const viewport = page.getViewport({ scale: 0.5 }); // High resolution for sharp display
+      const viewport = page.getViewport({ scale }); // Custom resolution scale
       const canvas = document.createElement("canvas");
       canvas.width = viewport.width;
       canvas.height = viewport.height;
@@ -179,6 +187,14 @@ export default function OrganizePage() {
   const [progress, setProgress] = useState(0);
   const [viewMode, setViewMode] = useState<"list" | "grid">("grid");
   const [isInputActive, setIsInputActive] = useState(false);
+  const [outputName, setOutputName] = useState("");
+  const [previewScale, setPreviewScale] = useState<number>(0.5);
+
+  // States for inserting pages modal
+  const [insertModalOpen, setInsertModalOpen] = useState(false);
+  const [insertTargetIndex, setInsertTargetIndex] = useState<number>(1);
+  const [insertItemsPreview, setInsertItemsPreview] = useState<PageItem[]>([]);
+  const [insertSourceDoc, setInsertSourceDoc] = useState<SourceDoc | null>(null);
 
   usePreventUnload(files.length > 0);
 
@@ -186,7 +202,7 @@ export default function OrganizePage() {
   const [sourceDocs, setSourceDocs] = useState<SourceDoc[]>([]);
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
-  const insertFileInputRef = useRef<HTMLInputElement>(null);
+  const modalFileInputRef = useRef<HTMLInputElement>(null);
 
   const dragYRef = useRef<number | null>(null);
   const animationFrameId = useRef<number | null>(null);
@@ -254,11 +270,13 @@ export default function OrganizePage() {
 
     if (newFiles.length === 0) {
       setPageState("idle");
+      setOutputName("");
       return;
     }
 
     try {
       const file = newFiles[0].file;
+      setOutputName(file.name.replace(/\.pdf$/i, ""));
       const buf = await file.arrayBuffer();
       const doc = await PDFDocument.load(buf);
       const count = doc.getPageCount();
@@ -300,6 +318,7 @@ export default function OrganizePage() {
       setSourceDocs((prev) =>
         prev.map((d) => (d.id === docId ? { ...d, pdfJsDoc: pdf } : d))
       );
+      setInsertSourceDoc((prev) => (prev && prev.id === docId ? { ...prev, pdfJsDoc: pdf } : prev));
     } catch (err) {
       console.warn("Gagal memuat modul PDF.js:", err);
     }
@@ -351,7 +370,8 @@ export default function OrganizePage() {
 
   // Insert PDF or Image
   const handleInsertFileClick = () => {
-    insertFileInputRef.current?.click();
+    setInsertTargetIndex(pageItems.length + 1);
+    setInsertModalOpen(true);
   };
 
   const handleInsertFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -404,8 +424,12 @@ export default function OrganizePage() {
         sourceDocId: docId,
       }));
 
+      // Add to sourceDocs right away so previews render correctly
       setSourceDocs((prev) => [...prev, newSourceDoc]);
-      setPageItems((prev) => [...prev, ...newItems]);
+      setInsertSourceDoc(newSourceDoc);
+      setInsertItemsPreview(newItems);
+      setInsertTargetIndex(pageItems.length + 1); // Default to inserting at the end
+      setInsertModalOpen(true);
 
       // Load PDF.js document in background for lazy thumbnails
       loadPdfJsDoc(buf, docId);
@@ -416,6 +440,40 @@ export default function OrganizePage() {
       console.error(err);
       setErrorMsg("Gagal menyisipkan berkas.");
     }
+  };
+
+  const handleConfirmInsert = () => {
+    if (insertItemsPreview.length === 0) return;
+
+    // insertTargetIndex is 1-based, so position index is insertTargetIndex - 1.
+    const targetIdx = Math.max(0, Math.min(pageItems.length, insertTargetIndex - 1));
+
+    setPageItems((prev) => {
+      const next = [...prev];
+      next.splice(targetIdx, 0, ...insertItemsPreview);
+      return next;
+    });
+
+    setInsertModalOpen(false);
+    setInsertItemsPreview([]);
+    setInsertSourceDoc(null);
+  };
+
+  const handleCancelInsert = () => {
+    if (insertSourceDoc) {
+      setSourceDocs((prev) => prev.filter((d) => d.id !== insertSourceDoc.id));
+    }
+    setInsertModalOpen(false);
+    setInsertItemsPreview([]);
+    setInsertSourceDoc(null);
+  };
+
+  const rotatePage = (index: number) => {
+    setPageItems((prev) =>
+      prev.map((item, i) =>
+        i === index ? { ...item, rotation: ((item.rotation || 0) + 90) % 360 } : item
+      )
+    );
   };
 
   const handleSave = useCallback(async () => {
@@ -443,6 +501,10 @@ export default function OrganizePage() {
         const docInstance = loadedDocs[item.sourceDocId];
         if (docInstance) {
           const [page] = await newDoc.copyPages(docInstance, [item.pageIndex]);
+          if (item.rotation) {
+            const currentRot = page.getRotation().angle;
+            page.setRotation(degrees((currentRot + item.rotation) % 360));
+          }
           newDoc.addPage(page);
         }
 
@@ -462,11 +524,10 @@ export default function OrganizePage() {
 
   const handleDownload = useCallback(async () => {
     if (!resultBytes) return;
-    const originalName = files[0]?.file.name ?? "output.pdf";
-    const baseName = originalName.replace(/\.pdf$/i, "");
-    const fileName = `kindalikepdf-${baseName}.pdf`;
+    const base = outputName.trim() || "output";
+    const fileName = `kindalikepdf-${base}-organized.pdf`;
     await streamDownload(resultBytes, fileName);
-  }, [resultBytes, files]);
+  }, [resultBytes, outputName]);
 
   const dropState =
     pageState === "processing" || pageState === "loading"
@@ -494,14 +555,29 @@ export default function OrganizePage() {
           state={dropState}
         />
 
-        {/* Hidden File Input for Insertion */}
-        <input
-          ref={insertFileInputRef}
-          type="file"
-          accept=".pdf,image/png,image/jpeg,image/jpg"
-          className="hidden"
-          onChange={handleInsertFileChange}
-        />
+        {/* Warning Box for Large Files */}
+        {files.length > 0 && (pageItems.length > 80 || (files[0] && files[0].file.size > 30 * 1024 * 1024)) && (
+          <div
+            className="flex items-start gap-2.5 p-3.5 text-sm"
+            style={{
+              background: "#fffbeb",
+              border: "1px solid #fde68a",
+              borderRadius: "var(--radius-card)",
+              color: "#b45309",
+            }}
+            role="alert"
+          >
+            <WarningCircle size={18} weight="fill" className="mt-0.5 shrink-0 text-[#d97706]" />
+            <div>
+              <p className="font-semibold text-[#92400e]">Performa Optimal</p>
+              <p className="text-xs mt-0.5 text-[#92400e]/90">
+                PDF ini cukup besar ({pageItems.length} halaman, {formatBytes(files[0].file.size)}). Untuk kenyamanan mengedit tanpa lambat/lag, kami menyarankan untuk mengubah **Resolusi Preview** menjadi **Rendah (Cepat)**.
+              </p>
+            </div>
+          </div>
+        )}
+
+
 
         {/* Loading */}
         {pageState === "loading" && (
@@ -537,7 +613,10 @@ export default function OrganizePage() {
         {/* Page list */}
         {((pageState === "ready" || pageState === "processing")) && pageItems.length > 0 && (
           <div>
-            <div className="flex items-center justify-between mb-5 flex-wrap gap-3">
+            <div
+              className="sticky top-[64px] z-20 flex items-center justify-between py-3 mb-5 flex-wrap gap-3 backdrop-blur-md bg-white/80 border-b -mx-6 px-6 transition-all"
+              style={{ borderColor: "var(--border-solid)" }}
+            >
               <div>
                 <p className="text-sm font-medium" style={{ color: "var(--foreground)" }}>
                   {pageItems.length} halaman tersisa
@@ -568,6 +647,26 @@ export default function OrganizePage() {
                   <Plus size={13} weight="bold" />
                   Sisipkan Halaman
                 </button>
+
+                {/* Resolution Selector */}
+                <div className="flex items-center gap-1.5">
+                  <span className="text-[11px] font-medium" style={{ color: "var(--muted)" }}>Resolusi Preview:</span>
+                  <select
+                    value={previewScale}
+                    onChange={(e) => setPreviewScale(parseFloat(e.target.value))}
+                    className="px-2 py-1 text-xs border rounded bg-white focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
+                    style={{
+                      borderColor: "var(--border-solid)",
+                      color: "var(--foreground)",
+                      borderRadius: "var(--radius-btn)",
+                    }}
+                  >
+                    <option value={0.2}>Rendah (Cepat)</option>
+                    <option value={0.5}>Sedang</option>
+                    <option value={0.8}>Tinggi</option>
+                    <option value={1.2}>Sangat Tinggi (Tajam)</option>
+                  </select>
+                </div>
 
                 {/* View Mode Segmented Controls */}
                 <div
@@ -666,7 +765,9 @@ export default function OrganizePage() {
                           borderRadius: "var(--radius-badge)",
                         }}
                       >
-                        <PageThumbnail pageIndex={item.pageIndex} pdf={srcDoc?.pdfJsDoc} />
+                        <div style={{ transform: `rotate(${item.rotation || 0}deg)`, transition: "transform 0.15s ease" }} className="w-full h-full flex items-center justify-center">
+                          <PageThumbnail pageIndex={item.pageIndex} pdf={srcDoc?.pdfJsDoc} scale={previewScale} />
+                        </div>
                       </div>
 
                       {/* Page label */}
@@ -679,6 +780,21 @@ export default function OrganizePage() {
 
                       {/* Controls */}
                       <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          aria-label={`Putar ${item.label}`}
+                          onClick={() => rotatePage(index)}
+                          className="w-7 h-7 flex items-center justify-center rounded transition-colors duration-150"
+                          style={{ borderRadius: "var(--radius-btn)", color: "var(--muted)" }}
+                          onMouseEnter={(e) =>
+                            (e.currentTarget.style.color = "var(--accent)")
+                          }
+                          onMouseLeave={(e) =>
+                            (e.currentTarget.style.color = "var(--muted)")
+                          }
+                        >
+                          <ArrowClockwise size={14} weight="bold" />
+                        </button>
                         <button
                           type="button"
                           aria-label={`Geser ${item.label} ke atas`}
@@ -769,7 +885,9 @@ export default function OrganizePage() {
                           borderRadius: "var(--radius-badge)",
                         }}
                       >
-                        <PageThumbnail pageIndex={item.pageIndex} pdf={srcDoc?.pdfJsDoc} />
+                        <div style={{ transform: `rotate(${item.rotation || 0}deg)`, transition: "transform 0.15s ease" }} className="w-full h-full flex items-center justify-center">
+                          <PageThumbnail pageIndex={item.pageIndex} pdf={srcDoc?.pdfJsDoc} scale={previewScale} />
+                        </div>
 
                         {/* Badge Page Number (Editable Position Input) */}
                         <div
@@ -788,6 +906,18 @@ export default function OrganizePage() {
                         {/* Action buttons (hidden during drag) */}
                         {!isDraggingThis && (
                           <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-150 flex items-center justify-center gap-2 pointer-events-auto">
+                            <button
+                              type="button"
+                              aria-label={`Putar ${item.label}`}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                rotatePage(index);
+                              }}
+                              className="w-8 h-8 flex items-center justify-center rounded bg-white text-gray-700 shadow hover:text-teal-600"
+                              style={{ borderRadius: "var(--radius-btn)" }}
+                            >
+                              <ArrowClockwise size={14} weight="bold" />
+                            </button>
                             <button
                               type="button"
                               aria-label={`Geser ${item.label} ke kiri`}
@@ -902,31 +1032,185 @@ export default function OrganizePage() {
               )}
             </button>
           ) : (
-            <>
-              <DownloadButton onDownload={handleDownload} label="Unduh PDF Baru" />
-              <button
-                type="button"
-                onClick={() => {
-                  setFiles([]);
-                  setPageState("idle");
-                  setPageItems([]);
-                  setSourceDocs([]);
-                }}
-                className="px-4 py-2.5 text-sm transition-colors duration-150"
-                style={{ color: "var(--muted)", borderRadius: "var(--radius-btn)" }}
-                onMouseEnter={(e) =>
-                  ((e.currentTarget as HTMLButtonElement).style.color = "var(--foreground)")
-                }
-                onMouseLeave={(e) =>
-                  ((e.currentTarget as HTMLButtonElement).style.color = "var(--muted)")
-                }
-              >
-                Mulai ulang
-              </button>
-            </>
+            <div className="w-full space-y-4">
+              {/* Filename Input */}
+              <div className="flex flex-col gap-1.5 w-full max-w-md">
+                <label htmlFor="filename-input" className="text-xs font-semibold" style={{ color: "var(--muted)" }}>
+                  Nama File Unduhan
+                </label>
+                <div
+                  className="flex items-center border bg-white overflow-hidden"
+                  style={{
+                    borderColor: "var(--border-solid)",
+                    borderRadius: "var(--radius-btn)",
+                  }}
+                >
+                  <span className="px-3 py-2 text-xs font-medium bg-[#fafafa] border-r select-none shrink-0" style={{ borderColor: "var(--border-solid)", color: "var(--muted)" }}>
+                    kindalikepdf-
+                  </span>
+                  <input
+                    id="filename-input"
+                    type="text"
+                    value={outputName}
+                    onChange={(e) => setOutputName(e.target.value)}
+                    className="flex-1 px-3 py-2 text-xs font-medium focus:outline-none bg-white text-[var(--foreground)]"
+                    placeholder="nama-file"
+                  />
+                  <span className="px-3 py-2 text-xs font-medium bg-[#fafafa] border-l select-none shrink-0" style={{ borderColor: "var(--border-solid)", color: "var(--muted)" }}>
+                    -organized.pdf
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <DownloadButton onDownload={handleDownload} label="Unduh PDF Baru" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFiles([]);
+                    setPageState("idle");
+                    setPageItems([]);
+                    setSourceDocs([]);
+                    setOutputName("");
+                  }}
+                  className="px-4 py-2.5 text-sm transition-colors duration-150"
+                  style={{ color: "var(--muted)", borderRadius: "var(--radius-btn)" }}
+                  onMouseEnter={(e) =>
+                    ((e.currentTarget as HTMLButtonElement).style.color = "var(--foreground)")
+                  }
+                  onMouseLeave={(e) =>
+                    ((e.currentTarget as HTMLButtonElement).style.color = "var(--muted)")
+                  }
+                >
+                  Mulai ulang
+                </button>
+              </div>
+            </div>
           )}
         </div>
       </div>
+
+      {/* Insertion Modal */}
+      {insertModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 animate-fade-in">
+          <div className="bg-white rounded-lg border shadow-xl w-full max-w-lg overflow-hidden flex flex-col" style={{ borderColor: "var(--border-solid)" }}>
+            {/* Header */}
+            <div className="px-6 py-4 border-b flex items-center justify-between" style={{ borderColor: "var(--border-solid)" }}>
+              <h3 className="text-base font-semibold text-[#111111]">Sisipkan Halaman</h3>
+              <button
+                type="button"
+                onClick={handleCancelInsert}
+                className="text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="p-6 space-y-4 overflow-y-auto max-h-[70vh]">
+              {/* Previews or Upload Input */}
+              {insertItemsPreview.length === 0 ? (
+                <div
+                  onClick={() => modalFileInputRef.current?.click()}
+                  className="flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-lg p-8 hover:bg-gray-50 transition-colors cursor-pointer"
+                  style={{ borderColor: "var(--border-solid)" }}
+                >
+                  <Plus size={24} className="text-gray-400 mb-2" />
+                  <p className="text-xs font-semibold text-[#111111]">Pilih File PDF atau Gambar</p>
+                  <p className="text-[10px] text-gray-500 mt-1">Mendukung file .pdf, .png, .jpg, .jpeg</p>
+                  <input
+                    ref={modalFileInputRef}
+                    type="file"
+                    accept=".pdf,image/png,image/jpeg,image/jpg"
+                    className="hidden"
+                    onChange={handleInsertFileChange}
+                  />
+                </div>
+              ) : (
+                <>
+                  <p className="text-xs text-gray-500">
+                    Berikut adalah halaman dari file/gambar yang Anda unggah:
+                  </p>
+
+                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 max-h-48 overflow-y-auto p-1 border rounded bg-[#fafafa]" style={{ borderColor: "var(--border-solid)" }}>
+                    {insertItemsPreview.map((item) => {
+                      const doc = sourceDocs.find((d) => d.id === item.sourceDocId) || insertSourceDoc;
+                      return (
+                        <div key={item.id} className="border p-2 rounded bg-white flex flex-col items-center gap-1 shadow-sm" style={{ borderColor: "var(--border-solid)" }}>
+                          <div className="w-14 h-20 bg-gray-50 border flex items-center justify-center overflow-hidden rounded relative pointer-events-none">
+                            <PageThumbnail pageIndex={item.pageIndex} pdf={doc?.pdfJsDoc} scale={0.25} />
+                          </div>
+                          <span className="text-[9px] text-gray-500 truncate w-full text-center font-medium mt-1">
+                            Hal {item.pageIndex + 1}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Input Position */}
+                  <div className="flex flex-col gap-1.5 pt-2">
+                    <label htmlFor="insert-target-index" className="text-xs font-semibold text-gray-700">
+                      Sisipkan mulai posisi nomor (halaman):
+                    </label>
+                    <div className="flex items-center gap-2">
+                      <input
+                        id="insert-target-index"
+                        type="number"
+                        min={1}
+                        max={pageItems.length + 1}
+                        value={insertTargetIndex}
+                        onChange={(e) => {
+                          const val = parseInt(e.target.value, 10);
+                          if (!isNaN(val)) {
+                            setInsertTargetIndex(Math.max(1, Math.min(pageItems.length + 1, val)));
+                          }
+                        }}
+                        className="w-20 px-3 py-1.5 text-sm border rounded bg-white text-gray-900 focus:outline-none focus:ring-1 focus:ring-[var(--accent)]"
+                        style={{ borderColor: "var(--border-solid)" }}
+                      />
+                      <span className="text-xs text-gray-500">
+                        (Batas: Halaman 1 s.d. {pageItems.length + 1}. Nilai {pageItems.length + 1} menyisipkan di bagian paling akhir)
+                      </span>
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 bg-[#fafafa] border-t flex justify-end gap-3" style={{ borderColor: "var(--border-solid)" }}>
+              <button
+                type="button"
+                onClick={handleCancelInsert}
+                className="px-4 py-2 text-xs font-medium text-gray-700 hover:bg-gray-100 transition-all"
+                style={{ borderRadius: "var(--radius-btn)" }}
+              >
+                Batal
+              </button>
+              {insertItemsPreview.length > 0 && (
+                <button
+                  type="button"
+                  onClick={handleConfirmInsert}
+                  className="px-4 py-2 text-xs font-medium text-white transition-all"
+                  style={{
+                    background: "var(--accent)",
+                    borderRadius: "var(--radius-btn)",
+                  }}
+                  onMouseEnter={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background = "var(--accent-hover)";
+                  }}
+                  onMouseLeave={(e) => {
+                    (e.currentTarget as HTMLButtonElement).style.background = "var(--accent)";
+                  }}
+                >
+                  Simpan & Sisipkan
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </ToolLayout>
   );
 }

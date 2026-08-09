@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { PDFDocument, PDFRawStream, PDFName, PDFNumber } from "pdf-lib";
 import ToolLayout from "@/components/ToolLayout";
 import DropZone, { DroppedFile } from "@/components/DropZone";
@@ -35,6 +35,15 @@ export default function CompressPage() {
   const [errorMsg, setErrorMsg] = useState("");
   const [progress, setProgress] = useState(0);
   const [currentFileIndex, setCurrentFileIndex] = useState(0);
+  const [outputName, setOutputName] = useState("");
+
+  useEffect(() => {
+    if (files.length > 0) {
+      setOutputName(files[0].file.name.replace(/\.pdf$/i, ""));
+    } else {
+      setOutputName("");
+    }
+  }, [files]);
 
   const handleCompress = useCallback(async () => {
     if (files.length === 0) return;
@@ -133,22 +142,25 @@ export default function CompressPage() {
   const handleDownload = useCallback(async () => {
     if (compressedFiles.length === 0) return;
 
+    const base = outputName.trim() || "output";
+
     if (compressedFiles.length === 1) {
       const single = compressedFiles[0];
-      const fileName = `compressed-${single.name}`;
+      const fileName = `kindalikepdf-${base}-compressed.pdf`;
       await streamDownload(single.data, fileName);
     } else {
       const JSZip = (await import("jszip")).default;
       const zip = new JSZip();
 
       compressedFiles.forEach((file) => {
-        zip.file(`compressed-${file.name}`, file.data);
+        const baseName = file.name.replace(/\.pdf$/i, "");
+        zip.file(`kindalikepdf-${baseName}-compressed.pdf`, file.data);
       });
 
       const zipContent = await zip.generateAsync({ type: "blob" });
-      await streamDownload(zipContent, "compressed-files.zip", "application/zip");
+      await streamDownload(zipContent, `kindalikepdf-${base}-compressed-files.zip`, "application/zip");
     }
-  }, [compressedFiles]);
+  }, [compressedFiles, outputName]);
 
   const canCompress = files.length > 0 && pageState === "idle";
   const resultSize = compressedFiles.reduce((acc, f) => acc + f.data.length, 0);
@@ -349,30 +361,61 @@ export default function CompressPage() {
               )}
             </button>
           ) : (
-            <>
-              <DownloadButton 
-                onDownload={handleDownload} 
-                label={compressedFiles.length > 1 ? "Unduh ZIP Hasil" : "Unduh PDF Hasil"} 
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  setFiles([]);
-                  setPageState("idle");
-                  setCompressedFiles([]);
-                }}
-                className="px-4 py-2.5 text-sm transition-colors duration-150"
-                style={{ color: "var(--muted)", borderRadius: "var(--radius-btn)" }}
-                onMouseEnter={(e) =>
-                  ((e.currentTarget as HTMLButtonElement).style.color = "var(--foreground)")
-                }
-                onMouseLeave={(e) =>
-                  ((e.currentTarget as HTMLButtonElement).style.color = "var(--muted)")
-                }
-              >
-                Mulai ulang
-              </button>
-            </>
+            <div className="w-full space-y-4">
+              {/* Filename Input */}
+              <div className="flex flex-col gap-1.5 w-full max-w-md">
+                <label htmlFor="filename-input" className="text-xs font-semibold" style={{ color: "var(--muted)" }}>
+                  Nama File Unduhan
+                </label>
+                <div
+                  className="flex items-center border bg-white overflow-hidden"
+                  style={{
+                    borderColor: "var(--border-solid)",
+                    borderRadius: "var(--radius-btn)",
+                  }}
+                >
+                  <span className="px-3 py-2 text-xs font-medium bg-[#fafafa] border-r select-none shrink-0" style={{ borderColor: "var(--border-solid)", color: "var(--muted)" }}>
+                    kindalikepdf-
+                  </span>
+                  <input
+                    id="filename-input"
+                    type="text"
+                    value={outputName}
+                    onChange={(e) => setOutputName(e.target.value)}
+                    className="flex-1 px-3 py-2 text-xs font-medium focus:outline-none bg-white text-[var(--foreground)]"
+                    placeholder="nama-file"
+                  />
+                  <span className="px-3 py-2 text-xs font-medium bg-[#fafafa] border-l select-none shrink-0" style={{ borderColor: "var(--border-solid)", color: "var(--muted)" }}>
+                    {compressedFiles.length > 1 ? "-compressed-files.zip" : "-compressed.pdf"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <DownloadButton 
+                  onDownload={handleDownload} 
+                  label={compressedFiles.length > 1 ? "Unduh ZIP Hasil" : "Unduh PDF Hasil"} 
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFiles([]);
+                    setPageState("idle");
+                    setCompressedFiles([]);
+                  }}
+                  className="px-4 py-2.5 text-sm transition-colors duration-150"
+                  style={{ color: "var(--muted)", borderRadius: "var(--radius-btn)" }}
+                  onMouseEnter={(e) =>
+                    ((e.currentTarget as HTMLButtonElement).style.color = "var(--foreground)")
+                  }
+                  onMouseLeave={(e) =>
+                    ((e.currentTarget as HTMLButtonElement).style.color = "var(--muted)")
+                  }
+                >
+                  Mulai ulang
+                </button>
+              </div>
+            </div>
           )}
         </div>
       </div>

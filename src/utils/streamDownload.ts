@@ -21,4 +21,9 @@ export async function streamDownload(
   // Clean up DOM and revoke URL
   document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 100);
+
+  // Trigger custom event so hooks/listeners can detect download action
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("app-file-downloaded"));
+  }
 }

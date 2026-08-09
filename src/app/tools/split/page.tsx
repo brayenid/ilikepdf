@@ -101,6 +101,15 @@ export default function SplitPage() {
   const [splitRange, setSplitRange] = useState({ from: 1, to: 1 });
   const [resultBytes, setResultBytes] = useState<Uint8Array[]>([]);
   const [progress, setProgress] = useState(0);
+  const [outputName, setOutputName] = useState("");
+
+  useEffect(() => {
+    if (files.length > 0) {
+      setOutputName(files[0].file.name.replace(/\.pdf$/i, ""));
+    } else {
+      setOutputName("");
+    }
+  }, [files]);
 
   usePreventUnload(files.length > 0);
 
@@ -199,18 +208,20 @@ export default function SplitPage() {
   const handleDownloadAll = useCallback(async () => {
     if (resultBytes.length === 0) return;
 
+    const base = outputName.trim() || "output";
+
     if (resultBytes.length === 1) {
       const b = resultBytes[0];
-      await streamDownload(b, `halaman-${splitRange.from}.pdf`);
+      await streamDownload(b, `kindalikepdf-${base}-split.pdf`);
       return;
     }
 
     for (let i = 0; i < resultBytes.length; i++) {
       const b = resultBytes[i];
-      await streamDownload(b, `halaman-${splitRange.from + i}.pdf`);
+      await streamDownload(b, `kindalikepdf-${base}-halaman-${splitRange.from + i}-split.pdf`);
       await new Promise((r) => setTimeout(r, 200));
     }
-  }, [resultBytes, splitRange]);
+  }, [resultBytes, splitRange, outputName]);
 
   const canSplit = files.length > 0 && pageCountLoaded && pageState === "idle";
   const dropState =
@@ -515,31 +526,63 @@ export default function SplitPage() {
               )}
             </button>
           ) : (
-            <>
-              <DownloadButton
-                onDownload={handleDownloadAll}
-                label={`Unduh ${resultBytes.length} File`}
-              />
-              <button
-                type="button"
-                onClick={() => {
-                  setFiles([]);
-                  setPageState("idle");
-                  setResultBytes([]);
-                  setPageCountLoaded(false);
-                }}
-                className="px-4 py-2.5 text-sm transition-colors duration-150"
-                style={{ color: "var(--muted)", borderRadius: "var(--radius-btn)" }}
-                onMouseEnter={(e) =>
-                  ((e.currentTarget as HTMLButtonElement).style.color = "var(--foreground)")
-                }
-                onMouseLeave={(e) =>
-                  ((e.currentTarget as HTMLButtonElement).style.color = "var(--muted)")
-                }
-              >
-                Mulai ulang
-              </button>
-            </>
+            <div className="w-full space-y-4">
+              {/* Filename Input */}
+              <div className="flex flex-col gap-1.5 w-full max-w-md">
+                <label htmlFor="filename-input" className="text-xs font-semibold" style={{ color: "var(--muted)" }}>
+                  Nama File Unduhan
+                </label>
+                <div
+                  className="flex items-center border bg-white overflow-hidden"
+                  style={{
+                    borderColor: "var(--border-solid)",
+                    borderRadius: "var(--radius-btn)",
+                  }}
+                >
+                  <span className="px-3 py-2 text-xs font-medium bg-[#fafafa] border-r select-none shrink-0" style={{ borderColor: "var(--border-solid)", color: "var(--muted)" }}>
+                    kindalikepdf-
+                  </span>
+                  <input
+                    id="filename-input"
+                    type="text"
+                    value={outputName}
+                    onChange={(e) => setOutputName(e.target.value)}
+                    className="flex-1 px-3 py-2 text-xs font-medium focus:outline-none bg-white text-[var(--foreground)]"
+                    placeholder="nama-file"
+                  />
+                  <span className="px-3 py-2 text-xs font-medium bg-[#fafafa] border-l select-none shrink-0" style={{ borderColor: "var(--border-solid)", color: "var(--muted)" }}>
+                    {resultBytes.length > 1 ? "-halaman-[X]-split.pdf" : "-split.pdf"}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <DownloadButton
+                  onDownload={handleDownloadAll}
+                  label={`Unduh ${resultBytes.length} File`}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFiles([]);
+                    setPageState("idle");
+                    setResultBytes([]);
+                    setPageCountLoaded(false);
+                    setOutputName("");
+                  }}
+                  className="px-4 py-2.5 text-sm transition-colors duration-150"
+                  style={{ color: "var(--muted)", borderRadius: "var(--radius-btn)" }}
+                  onMouseEnter={(e) =>
+                    ((e.currentTarget as HTMLButtonElement).style.color = "var(--foreground)")
+                  }
+                  onMouseLeave={(e) =>
+                    ((e.currentTarget as HTMLButtonElement).style.color = "var(--muted)")
+                  }
+                >
+                  Mulai ulang
+                </button>
+              </div>
+            </div>
           )}
         </div>
       </div>
