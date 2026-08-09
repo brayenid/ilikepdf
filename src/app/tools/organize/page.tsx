@@ -111,9 +111,10 @@ interface PagePositionInputProps {
   currentIndex: number;
   maxIndex: number;
   onMove: (targetIndex: number) => void;
+  onActiveChange: (active: boolean) => void;
 }
 
-function PagePositionInput({ currentIndex, maxIndex, onMove }: PagePositionInputProps) {
+function PagePositionInput({ currentIndex, maxIndex, onMove, onActiveChange }: PagePositionInputProps) {
   const [value, setValue] = useState((currentIndex + 1).toString());
 
   useEffect(() => {
@@ -124,11 +125,13 @@ function PagePositionInput({ currentIndex, maxIndex, onMove }: PagePositionInput
     const val = parseInt(value, 10);
     if (isNaN(val) || val < 1 || val > maxIndex) {
       setValue((currentIndex + 1).toString());
+      onActiveChange(false);
       return;
     }
     if (val - 1 !== currentIndex) {
       onMove(val - 1);
     }
+    onActiveChange(false);
   };
 
   return (
@@ -140,11 +143,20 @@ function PagePositionInput({ currentIndex, maxIndex, onMove }: PagePositionInput
       onChange={(e) => setValue(e.target.value)}
       onKeyDown={(e) => {
         if (e.key === "Enter") {
-          handleBlurOrEnter();
           (e.currentTarget as HTMLInputElement).blur();
         }
       }}
+      onFocus={() => onActiveChange(true)}
       onBlur={handleBlurOrEnter}
+      onMouseEnter={() => onActiveChange(true)}
+      onMouseLeave={(e) => {
+        if (document.activeElement !== e.currentTarget) {
+          onActiveChange(false);
+        }
+      }}
+      onMouseDown={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
       title="Ubah posisi halaman (tekan Enter)"
       className="w-8 h-8 text-center text-xs font-semibold border rounded-full bg-white transition-all focus:outline-none focus:ring-2 focus:ring-teal-500 focus:border-teal-500 shadow-sm cursor-text"
       style={{
@@ -166,6 +178,7 @@ export default function OrganizePage() {
   const [resultBytes, setResultBytes] = useState<Uint8Array<ArrayBuffer> | null>(null);
   const [progress, setProgress] = useState(0);
   const [viewMode, setViewMode] = useState<"list" | "grid">("grid");
+  const [isInputActive, setIsInputActive] = useState(false);
 
   usePreventUnload(files.length > 0);
 
@@ -449,7 +462,9 @@ export default function OrganizePage() {
 
   const handleDownload = useCallback(async () => {
     if (!resultBytes) return;
-    const fileName = `organized-${files[0]?.file.name ?? "output"}.pdf`;
+    const originalName = files[0]?.file.name ?? "output.pdf";
+    const baseName = originalName.replace(/\.pdf$/i, "");
+    const fileName = `kindalikepdf-${baseName}.pdf`;
     await streamDownload(resultBytes, fileName);
   }, [resultBytes, files]);
 
@@ -609,7 +624,7 @@ export default function OrganizePage() {
                   return (
                     <li
                       key={item.id}
-                      draggable
+                      draggable={!isInputActive}
                       onDragStart={() => handleDragStart(index)}
                       onDragEnter={() => handleDragEnter(index)}
                       onDragEnd={handleDragEnd}
@@ -639,6 +654,7 @@ export default function OrganizePage() {
                           currentIndex={index}
                           maxIndex={pageItems.length}
                           onMove={(target) => movePage(index, target)}
+                          onActiveChange={setIsInputActive}
                         />
                       </div>
 
@@ -729,7 +745,7 @@ export default function OrganizePage() {
                   return (
                     <div
                       key={item.id}
-                      draggable
+                      draggable={!isInputActive}
                       onDragStart={() => handleDragStart(index)}
                       onDragEnter={() => handleDragEnter(index)}
                       onDragEnd={handleDragEnd}
@@ -765,6 +781,7 @@ export default function OrganizePage() {
                             currentIndex={index}
                             maxIndex={pageItems.length}
                             onMove={(target) => movePage(index, target)}
+                            onActiveChange={setIsInputActive}
                           />
                         </div>
 
