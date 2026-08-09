@@ -159,7 +159,7 @@ export default function HomePage() {
               </h1>
               <p className="text-base text-gray-500 leading-relaxed max-w-[45ch]">
                 Kompres, gabung, pisahkan, dan manipulasi berkas PDF atau gambar Anda secara instan di dalam memori
-                browser tanpa upload.
+                browser tanpa upload ke server kami.
               </p>
               <div className="pt-2">
                 <HeroCTA />

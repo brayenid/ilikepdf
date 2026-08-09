@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { UploadSimple, FileText, X, CheckCircle, ArrowUp, ArrowDown, DotsSixVertical } from "@phosphor-icons/react";
 
 export type DropZoneState = "idle" | "dragging" | "loaded" | "processing" | "done" | "error";
@@ -305,9 +306,25 @@ export default function DropZone({
         </ul>
       )}
 
-      {/* Confirmation Modal */}
-      {confirmFile && (
-        <div className="fixed inset-0 bg-[#111111]/35 backdrop-blur-[3px] z-[999] flex items-center justify-center p-4">
+      {/* Confirmation Modal — rendered via Portal to escape any parent transform/position context */}
+      {confirmFile && typeof document !== "undefined" && createPortal(
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "rgba(17,17,17,0.35)",
+            backdropFilter: "blur(3px)",
+            WebkitBackdropFilter: "blur(3px)",
+            zIndex: 9999,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: "1rem",
+          }}
+        >
           <div
             className="bg-white max-w-sm w-full p-6 shadow-xl border flex flex-col gap-5"
             style={{
@@ -360,7 +377,8 @@ export default function DropZone({
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
