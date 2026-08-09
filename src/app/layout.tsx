@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import PWAInstallPrompt from "@/components/PWAInstallPrompt";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -55,15 +56,29 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="min-h-dvh flex flex-col bg-white text-[#111111]">
         {children}
+        <PWAInstallPrompt />
         <script
           dangerouslySetInnerHTML={{
             __html: `
               if ('serviceWorker' in navigator) {
                 window.addEventListener('load', function() {
-                  navigator.serviceWorker.register('/sw.js').then(
-                    function(reg) { console.log('PWA ServiceWorker registered scope:', reg.scope); },
-                    function(err) { console.log('PWA ServiceWorker registration failed:', err); }
-                  );
+                  navigator.serviceWorker.register('/sw.js')
+                    .then(function(reg) {
+                      console.log('[PWA] ServiceWorker registered, scope:', reg.scope);
+                      // Detect SW update and reload to activate new version
+                      reg.addEventListener('updatefound', function() {
+                        var newWorker = reg.installing;
+                        if (!newWorker) return;
+                        newWorker.addEventListener('statechange', function() {
+                          if (newWorker.state === 'activated') {
+                            console.log('[PWA] New SW activated — cache refreshed.');
+                          }
+                        });
+                      });
+                    })
+                    .catch(function(err) {
+                      console.warn('[PWA] ServiceWorker registration failed:', err);
+                    });
                 });
               }
             `
